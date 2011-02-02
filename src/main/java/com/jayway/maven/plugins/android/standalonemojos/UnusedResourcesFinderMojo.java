@@ -1,3 +1,19 @@
+/*
+ * Copyright (C) 2011 Jayway AB
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.jayway.maven.plugins.android.standalonemojos;
 
 import java.io.File;
@@ -23,7 +39,7 @@ import com.jayway.maven.plugins.android.AbstractAndroidMojo;
  * Checks for unused and unreferenced resources in the resource directory <br/>
  * 
  * @author mattias.rosberg@jayway.com
- * @goal checkResources
+ * @goal findUnusedResources
  * @requiresProject true
  */
 public class UnusedResourcesFinderMojo extends AbstractAndroidMojo {
@@ -33,20 +49,24 @@ public class UnusedResourcesFinderMojo extends AbstractAndroidMojo {
 
 	public void execute() throws MojoExecutionException, MojoFailureException {
 
+		// Check that it's not a parent project or instrumentation project
+		if (!project.getPackaging().equals("apk")) {
+			getLog().info("Not packaging \"apk\" - skipping");
+			return;
+		}
+
+		String packageName = extractPackageNameFromAndroidManifest(androidManifestFile);
+		String targetPackageName = extractTargetPackageNameForInstrumentationTestRunnerFromAndroidManifest(androidManifestFile);
+		if (targetPackageName != null && !targetPackageName.equals(packageName)) {
+			getLog().info("IntegrationTest project - skipping");
+			return;
+		}
+
 		// Creating map of different resource types from R.java
 		Map<String, Set<String>> resourceMap = new HashMap<String, Set<String>>();
 		try {
-			// R.java file
-			String packageName = extractPackageNameFromAndroidManifest(
-					androidManifestFile).trim();
-			String[] packageNameParts = packageName.split("\\.");
-			StringBuilder genDirBuilder = new StringBuilder();
-			genDirBuilder.append(project.getBasedir().getPath()
-					+ File.separatorChar + "gen" + File.separatorChar);
-			for (int x = 0; x < packageNameParts.length; x++) {
-				genDirBuilder.append(packageNameParts[x] + File.separatorChar);
-			}
-			File RdotJava = new File(genDirBuilder.toString() + "R.java");
+			File RdotJava = retrieveAllFilesWithExtension(project.getBasedir(),
+					"R.java").get(0);
 
 			// Read file and extract resource names
 			LineNumberReader lnr = new LineNumberReader(
@@ -85,19 +105,61 @@ public class UnusedResourcesFinderMojo extends AbstractAndroidMojo {
 		}
 
 		resourceMap.remove("id");
-		getLog().info(
-				"The following resources in R.java are probably not used by your"
-						+ " project and the corresponding resource files can be removed.");
 
+		int count = 0;
+		StringBuilder output = new StringBuilder();
 		for (String key : resourceMap.keySet()) {
 			for (String res : resourceMap.get(key)) {
-				getLog().info("R." + key + "." + res);
+				count++;
+				output.append("\nR." + key + "." + res);
 			}
 		}
+
+		if (count == 0) {
+			getLog().info("Found 0 unused resources");
+		} else {
+			getLog().info("Found " + count + " unused resources");
+			getLog().info(
+					"The following constants in R.java are not used by your"
+							+ " project and the corresponding resource files can be removed:");
+			getLog().info(output.toString());
+		}
+	}
+
+	private String extractTargetPackageNameForInstrumentationTestRunnerFromAndroidManifest(
+			File androidManifestFile) {
+		try {
+			InputStreamReader reader = new InputStreamReader(
+					new FileInputStream(androidManifestFile));
+			XmlPullParser parser = new MXParser();
+			parser.setInput(reader);
+
+			while (parser.next() != XmlPullParser.END_DOCUMENT) {
+				switch (parser.getEventType()) {
+				case XmlPullParser.START_TAG: {
+					if ("instrumentation".equals(parser.getName())) {
+						for (int a = 0; a < parser.getAttributeCount(); a++) {
+							if (parser.getAttributeName(a).equals(
+									"android:targetPackage")) {
+								return parser.getAttributeValue(a);
+							}
+						}
+
+					}
+					break;
+				}
+				}
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		return null;
 	}
 
 	public HashSet<String> collectReferedResoures() {
 		HashSet<String> allReferedResources = new HashSet<String>();
+
+		getLog().info("Looking for unused resources...");
 
 		// Extract refered resources from Java source files
 		List<File> files = retrieveAllFilesWithExtension(sourceDirectory,
@@ -110,6 +172,8 @@ public class UnusedResourcesFinderMojo extends AbstractAndroidMojo {
 					.extract());
 		}
 
+		int nbrFoundInJava = allReferedResources.size();
+
 		// Extract refered resources from XML files in sub directories of /res
 		files = retrieveAllFilesWithExtension(resourceDirectory, ".xml");
 
@@ -118,9 +182,12 @@ public class UnusedResourcesFinderMojo extends AbstractAndroidMojo {
 			allReferedResources.addAll(xmlFileResourseExtractor.extract());
 		}
 
+		int nbrFoundInJavaAndRes = allReferedResources.size();
+
 		// Extract refered resources from AndroidManifest.xml
-		xmlFileResourseExtractor = new XmlFileResourceExtractor(
-				androidManifestFile);
+		File androidManFile = retrieveAllFilesWithExtension(
+				project.getBasedir(), "AndroidManifest.xml").get(0);
+		xmlFileResourseExtractor = new XmlFileResourceExtractor(androidManFile);
 		allReferedResources.addAll(xmlFileResourseExtractor.extract());
 
 		return allReferedResources;
@@ -132,17 +199,19 @@ public class UnusedResourcesFinderMojo extends AbstractAndroidMojo {
 		List<File> files = new ArrayList<File>();
 		// File root = new File(rootDir);
 		String[] dirList = rootDir.list();
-		for (int i = 0; i < dirList.length; i++) {
-			File file = new File(rootDir.getPath() + File.separatorChar
-					+ dirList[i]);
-			if (file.isDirectory()) {
-				files.addAll(retrieveAllFilesWithExtension(
-						new File(rootDir.getPath() + File.separatorChar
-								+ dirList[i]), fileExtension));
-			} else {
-				if (dirList[i].endsWith(fileExtension)) {
-					files.add(new File(rootDir.getPath() + File.separatorChar
-							+ dirList[i]));
+		if (dirList != null) {
+			for (int i = 0; i < dirList.length; i++) {
+				File file = new File(rootDir.getPath() + File.separatorChar
+						+ dirList[i]);
+				if (file.isDirectory()) {
+					files.addAll(retrieveAllFilesWithExtension(
+							new File(rootDir.getPath() + File.separatorChar
+									+ dirList[i]), fileExtension));
+				} else {
+					if (dirList[i].endsWith(fileExtension)) {
+						files.add(new File(rootDir.getPath()
+								+ File.separatorChar + dirList[i]));
+					}
 				}
 			}
 		}
@@ -152,10 +221,23 @@ public class UnusedResourcesFinderMojo extends AbstractAndroidMojo {
 	private class JavaSourceFileResourceExtractor {
 
 		private File javaSourceFile;
+		private Set<String> validResourceTypes;
 
 		public JavaSourceFileResourceExtractor(File javaSourceFile) {
 			super();
 			this.javaSourceFile = javaSourceFile;
+			validResourceTypes = new HashSet<String>();
+			validResourceTypes.add("string");
+			validResourceTypes.add("drawable");
+			validResourceTypes.add("layout");
+			validResourceTypes.add("style");
+			validResourceTypes.add("color");
+			validResourceTypes.add("array");
+			validResourceTypes.add("raw");
+			validResourceTypes.add("anim");
+			validResourceTypes.add("menu");
+			validResourceTypes.add("styleable");
+			validResourceTypes.add("xml");
 		}
 
 		public Set<String> extract() {
@@ -180,8 +262,14 @@ public class UnusedResourcesFinderMojo extends AbstractAndroidMojo {
 											.indexOf(",", startIndex) : line
 											.length());
 							try {
-								referedResources.add(line.substring(startIndex,
-										endIndex));
+								String resourceName = line.substring(
+										startIndex, endIndex);
+								String[] resourceNameParts = resourceName
+										.split("\\.");
+								if (validResourceTypes
+										.contains(resourceNameParts[1])) {
+									referedResources.add(resourceName);
+								}
 							} catch (Exception e) {
 								e.printStackTrace();
 								System.out.println("Problem line = " + line);
@@ -247,6 +335,22 @@ public class UnusedResourcesFinderMojo extends AbstractAndroidMojo {
 				referedResources.add("R.style." + text.replace("@style/", ""));
 			} else if (text.startsWith("@array")) {
 				referedResources.add("R.array." + text.replace("@array/", ""));
+			} else if (text.startsWith("@anim")) {
+				referedResources.add("R.anim." + text.replace("@anim/", ""));
+			} else if (text.startsWith("@styleable")) {
+				referedResources.add("R.styleable."
+						+ text.replace("@styleable/", ""));
+			} else if (text.startsWith("@raw")) {
+				referedResources.add("R.raw." + text.replace("@raw/", ""));
+			} else if (text.startsWith("@menu")) {
+				referedResources.add("R.menu." + text.replace("@menu/", ""));
+			} else if (text.startsWith("@xml")) {
+				referedResources.add("R.xml." + text.replace("@xml/", ""));
+			} else if (text.startsWith("@attr")) {
+				referedResources.add("R.attr." + text.replace("@attr/", ""));
+			} else if (text.startsWith("@layout")) {
+				referedResources
+						.add("R.layout." + text.replace("@layout/", ""));
 			}
 		}
 	}
