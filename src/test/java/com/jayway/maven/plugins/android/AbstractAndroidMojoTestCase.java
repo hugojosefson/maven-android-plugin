@@ -23,6 +23,9 @@ import org.junit.Assert;
 
 import com.jayway.maven.plugins.android.standalonemojos.MojoProjectStub;
 import com.jayway.maven.plugins.android.standalonemojos.VersionUpdateMojo;
+import org.mockito.Mockito;
+
+import static org.mockito.Mockito.when;
 
 public abstract class AbstractAndroidMojoTestCase<T extends AbstractAndroidMojo> extends AbstractMojoTestCase {
     /**
@@ -92,16 +95,17 @@ public abstract class AbstractAndroidMojoTestCase<T extends AbstractAndroidMojo>
         // - used for error messages in PluginParameterExpressionEvaluator
         mojoDesc.setGoal(getPluginGoalName()); 
         MojoExecution mojoExec = new MojoExecution(mojoDesc); 
-        // - Only needed if we start to use expressions like ${settings.*}, ${localRepository}, ${reactorProjects}
-        MavenSession context = null; // Messy to declare, would rather avoid using it.
+        // - Needed by the constructor of PluginParameterExpressionEvaluator below
+        MavenSession context = Mockito.mock(MavenSession.class); // Messy to declare, would rather avoid using it.
+        when(context.getExecutionProperties()).thenReturn(project.getProperties());
+        when(context.getCurrentProject()).thenReturn(project);
         // - Used for ${basedir} relative paths
         PathTranslator pathTranslator = new DefaultPathTranslator();
         // - Declared to prevent NPE from logging events in maven core
         Logger logger = new ConsoleLogger(Logger.LEVEL_DEBUG, mojo.getClass().getName());
         
-        // Declare evalator that maven itself uses.
-        ExpressionEvaluator evaluator = new PluginParameterExpressionEvaluator(
-                context, mojoExec, pathTranslator, logger, project, project.getProperties());
+        // Declare evaluator that maven itself uses.
+        ExpressionEvaluator evaluator = new PluginParameterExpressionEvaluator(context, mojoExec);
         // Lookup plexus configuration component
         ComponentConfigurator configurator = (ComponentConfigurator) lookup(ComponentConfigurator.ROLE);
         // Configure mojo using above
