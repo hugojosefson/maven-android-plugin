@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009 Jayway AB
+ * Copyright (C) 2009-2011 Jayway AB
  * Copyright (C) 2007-2008 JVending Masa
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -42,9 +42,10 @@ import java.util.zip.ZipOutputStream;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.maven.artifact.Artifact;
+import org.apache.maven.artifact.resolver.ArtifactNotFoundException;
+import org.apache.maven.artifact.resolver.ArtifactResolutionException;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
-import org.apache.maven.plugin.dependency.utils.resolvers.DefaultArtifactsResolver;
 import org.codehaus.plexus.util.AbstractScanner;
 
 import com.jayway.maven.plugins.android.AbstractAndroidMojo;
@@ -499,12 +500,17 @@ public class ApkMojo extends AbstractAndroidMojo {
             if (!artifacts.isEmpty())
             {
 
-                final DefaultArtifactsResolver artifactsResolver = new DefaultArtifactsResolver(this.artifactResolver, this.localRepository, this.remoteRepositories, true);
+                final SimpleArtifactsResolver artifactsResolver = new SimpleArtifactsResolver(this.artifactResolver, this.localRepository, this.remoteRepositories, true);
 
-                @SuppressWarnings("unchecked")
-                final Set<Artifact> resolvedArtifacts = artifactsResolver.resolve(artifacts, getLog());
+                try {
+                    artifactsResolver.resolve(artifacts);
+                } catch (ArtifactResolutionException e) {
+                    throw new MojoExecutionException("Could not resolve all native dependencies.", e);
+                } catch (ArtifactNotFoundException e) {
+                    throw new MojoExecutionException("Could not resolve all native dependencies.", e);
+                }
 
-                for (Artifact resolvedArtifact : resolvedArtifacts)
+                for (Artifact resolvedArtifact : artifacts)
                 {
                     final File artifactFile = resolvedArtifact.getFile();
                     try

@@ -112,21 +112,6 @@
             <artifactId>maven-core</artifactId>
             <version>3.0.3</version>
         </dependency>
-        <dependency>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-dependency-plugin</artifactId>
-            <version>2.2</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>plexus</groupId>
-                    <artifactId>plexus-utils</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.maven.shared</groupId>
-                    <artifactId>maven-common-artifact-filters</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
 		<dependency>
 			<groupId>org.apache.maven.plugin-testing</groupId>
 			<artifactId>maven-plugin-testing-harness</artifactId>
@@ -158,6 +143,11 @@
             <artifactId>mockito-core</artifactId>
             <version>1.8.5</version>
         </dependency>
+		<dependency>
+			<groupId>org.codehaus.plexus</groupId>
+			<artifactId>plexus-archiver</artifactId>
+			<version>1.2</version>
+		</dependency>
 	</dependencies>
     <build>
         <pluginManagement>
